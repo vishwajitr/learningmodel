@@ -48,7 +48,23 @@ python -m sensex_ai.cli run                 # live; exits at once if today isn't
 
 Offline test with no keys at all: `TELEGRAM_DRY_RUN=true python -m sensex_ai.cli train --synthetic`.
 
-## Schedule (cron, IST machine)
+## Full auto mode (recommended)
+
+One process does everything; no cron needed:
+
+```bash
+python -m sensex_ai.cli auto          # or:  docker compose up -d --build
+```
+
+- On first start: fetches 1 year of data and trains both models if none exist.
+- Weekdays 09:05 IST: runs the day (silently does nothing unless today is D+0/D+1), alerts, 15:20 EOD report.
+- Weekdays 19:30 IST: refetch + retrain (continuous learning).
+- Errors go to Telegram and the loop keeps going; `data/scheduler_state.json` stops jobs repeating after a restart.
+- Docker: set `OPENALGO_HOST=http://host.docker.internal:5000` in `.env`. Needs an always-on machine/VPS
+  that can reach your OpenAlgo (and the broker must be logged in each day).
+- Tests: `python -m pytest tests`
+
+## Schedule (cron alternative)
 
 ```cron
 # live scan every weekday at 09:10 (exits on non-D0/D1 days)

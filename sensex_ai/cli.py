@@ -5,6 +5,7 @@
   python -m sensex_ai.cli replay --date 2026-11-13 [--no-claude]   # re-run a past day from cached data
   python -m sensex_ai.cli test-telegram         # send a test message
   python -m sensex_ai.cli run                   # live: run today (exits if today isn't D+0/D+1)
+  python -m sensex_ai.cli auto                  # FULL AUTO: daemon that scans, reports and retrains by itself
   python -m sensex_ai.cli update                # nightly: refresh data + retrain (the "learning" step)
 """
 from __future__ import annotations
@@ -81,7 +82,7 @@ def main() -> None:
     tr = sub.add_parser("train"); tr.add_argument("--synthetic", action="store_true")
     rp = sub.add_parser("replay"); rp.add_argument("--date", required=True)
     rp.add_argument("--synthetic", action="store_true"); rp.add_argument("--no-claude", action="store_true")
-    sub.add_parser("test-telegram"); sub.add_parser("run"); sub.add_parser("update")
+    sub.add_parser("test-telegram"); sub.add_parser("run"); sub.add_parser("update"); sub.add_parser("auto")
     a = ap.parse_args()
     s = get_settings()
 
@@ -97,6 +98,9 @@ def main() -> None:
         print("sent" if ok else "failed")
     elif a.cmd == "run":
         run_today(s)
+    elif a.cmd == "auto":
+        from .scheduler import auto
+        auto(s)
     elif a.cmd == "update":
         MarketData(s).load_or_update_cache()
         cmd_train(s, synthetic=False)

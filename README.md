@@ -108,3 +108,14 @@ sensex_ai/
 - Don't trust the synthetic-data numbers; they only show the pipeline runs. Use the `train` output on real data.
 - Confirm SENSEX lot size: `optionsymbol()` overrides `LOT_SIZE` when live.
 - Paper-trade for several expiries before trading real money on any alert.
+
+## Deploy on Railway
+
+1. Push this repo to GitHub, then Railway → New Project → Deploy from GitHub repo (it picks up `railway.json` + `Dockerfile`).
+2. Add a **Volume** mounted at `/app/data` (journal, candles, scheduler state) and a second at `/app/models`
+   (or set `MODEL_DIR=/app/data/models` and use one volume).
+3. Service → Variables: paste everything from `.env.example` (ANTHROPIC_API_KEY, TELEGRAM_*, OPENALGO_*, etc.).
+4. **OpenAlgo must be reachable from Railway.** `127.0.0.1` will not work. Either deploy OpenAlgo as a second
+   Railway service and use its private URL (`http://<service>.railway.internal:5000`), or expose your own
+   OpenAlgo over HTTPS and set `OPENALGO_HOST` to that URL. The broker still needs its daily login.
+5. Run a single replica only (two replicas would send duplicate alerts).

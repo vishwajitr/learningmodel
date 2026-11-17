@@ -119,3 +119,15 @@ sensex_ai/
    Railway service and use its private URL (`http://<service>.railway.internal:5000`), or expose your own
    OpenAlgo over HTTPS and set `OPENALGO_HOST` to that URL. The broker still needs its daily login.
 5. Run a single replica only (two replicas would send duplicate alerts).
+
+## Deploy on Oracle Cloud Always Free (free, always-on)
+
+1. Create an Oracle Cloud account (card needed for verification). Compute → Create instance →
+   Ubuntu 22.04/24.04, shape **VM.Standard.A1.Flex** (Arm, 1–2 OCPU, 6–12 GB) or **VM.Standard.E2.1.Micro**; add your SSH key.
+   If "out of capacity", retry another availability domain/later.
+2. SSH in: `ssh ubuntu@<public-ip>`, then run `bash <(curl -fsSL https://raw.githubusercontent.com/vishwajitr/learningmodel/claude/cool-ptolemy-a0mwkk/deploy/oracle-setup.sh)`
+3. Edit `~/sensex_expiry_ai/.env` (keys; `OPENALGO_HOST` must be a URL reachable from the VM, e.g. your Railway OpenAlgo
+   URL or OpenAlgo running on the same VM), set `TELEGRAM_DRY_RUN=false`, run the script again.
+4. Check: `sudo docker compose logs -f`. Outbound access only is needed - no open ports.
+5. Keep the VM from being reclaimed as idle: the nightly retrain plus daily scans give it regular CPU use; also keep a
+   payment method on the account and log in to the console now and then.

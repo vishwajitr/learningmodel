@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta
 import numpy as np
 import pandas as pd
 
-from .calendar import day_type, next_expiry, option_symbol, parse_expiry_list
+from .calendar import day_type, ist_today, next_expiry, option_symbol, parse_expiry_list
 from .config import Settings
 from .openalgo_client import OpenAlgo, OpenAlgoError
 from .store import IST, Store
@@ -52,7 +52,7 @@ def yahoo_vix(symbol: str, days: int) -> pd.Series:
 
 # ---------------- OpenAlgo ----------------
 def openalgo_candles(oa: OpenAlgo, s: Settings, days: int) -> pd.DataFrame:
-    end = date.today()
+    end = ist_today()
     df = oa.history(s.underlying, s.index_exchange, f"{s.interval_min}m", end - timedelta(days=days), end)
     return _session_only(df)
 
@@ -166,7 +166,7 @@ def refresh(s: Settings, store: Store, source: str | None = None) -> dict:
 def collect_snapshot(s: Settings, store: Store, oa: OpenAlgo, strikes_each_side: int = 3) -> int:
     """Record live CE/PE LTPs around ATM (run every minute on D0/D1) so real premium data builds up."""
     known = openalgo_expiries(oa, s)
-    today = date.today()
+    today = ist_today()
     e = next_expiry(today, s.expiry_weekday, s.holidays, known)
     spot = float(oa.quote(s.underlying, s.index_exchange).get("ltp") or 0)
     if not spot:

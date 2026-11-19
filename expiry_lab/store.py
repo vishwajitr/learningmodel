@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .calendar import ist_now
+
 IST = "Asia/Kolkata"
 
 SCHEMA = """
@@ -103,11 +105,11 @@ class Store:
         with self.conn() as c:
             c.execute("INSERT INTO orders (ts, action, symbol, quantity, dry_run, status, request, response) "
                       "VALUES (?,?,?,?,?,?,?,?)",
-                      (datetime.now().isoformat(timespec="seconds"), action, symbol, qty, int(dry_run), status,
+                      (ist_now().isoformat(timespec="seconds"), action, symbol, qty, int(dry_run), status,
                        json.dumps(req), json.dumps(response, default=str)))
 
     def orders_today(self, entries_only: bool = True) -> int:
-        today = datetime.now().date().isoformat()
+        today = ist_now().date().isoformat()
         q = "SELECT COUNT(*) FROM orders WHERE ts >= ? AND status IN ('success','dry_run')"
         if entries_only:
             q += " AND action IN ('BUY_CE','BUY_PE')"
@@ -121,7 +123,7 @@ class Store:
     # ---------- rolling window ----------
     def prune(self, now: datetime | None = None) -> None:
         """Keep only the last RETENTION_DAYS of market data (signals/orders are kept as an audit log)."""
-        now = now or datetime.now()
+        now = now or ist_now()
         cutoff = pd.Timestamp(now - timedelta(days=self.retention_days)).tz_localize(IST)
         cut_iso = cutoff.isoformat()
         with self.conn() as c:

@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from .analysis import FEATURES, add_indicators, features_at
-from .calendar import day_type, next_expiry
+from .calendar import day_type, ist_today, next_expiry
 from .config import Settings
 from .premium import bs_price, years_to_expiry
 from .store import IST, Store
@@ -186,7 +186,7 @@ def _today_bars(s: Settings) -> tuple[pd.DataFrame, float | None]:
     except Exception as e:  # noqa: BLE001
         log.warning("OpenAlgo candles failed (%s) - using Yahoo (delayed)", e)
         df = yahoo_candles(s.yahoo_symbol, 6, s.interval_min)
-    today = date.today()
+    today = ist_today()
     prev = df[df.index.date < today]
     return df[df.index.date == today], (float(prev["close"].iloc[-1]) if len(prev) else None)
 
@@ -221,7 +221,7 @@ def run_live(s: Settings, store: Store, playbook: dict, model_bundle, direct: bo
     from .engine import DayEngine, write_state
     from .executor import Executor
 
-    today = date.today()
+    today = ist_today()
     known: list[date] = []
     kind = day_type(today, s.expiry_weekday, s.holidays, known)
     allowed = [x.strip() for x in s.trade_days.split(",")]

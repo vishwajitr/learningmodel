@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, time
+from datetime import date, time
 
-from .calendar import day_type, next_expiry, openalgo_expiry_str, option_symbol, parse_expiry_list
+from .calendar import day_type, ist_now, next_expiry, openalgo_expiry_str, option_symbol, parse_expiry_list
 from .config import Settings
 from .openalgo_client import OpenAlgo, OpenAlgoError
 from .store import Store
@@ -27,7 +27,7 @@ class Rejected(Exception):
 
 
 class Executor:
-    def __init__(self, s: Settings, store: Store, oa: OpenAlgo | None = None, now=datetime.now):
+    def __init__(self, s: Settings, store: Store, oa: OpenAlgo | None = None, now=ist_now):
         self.s, self.store, self.now = s, store, now
         self._oa = oa
         self.pos_path = s.data_dir / "position.json"

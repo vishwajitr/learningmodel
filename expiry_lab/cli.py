@@ -7,6 +7,7 @@
   python -m expiry_lab hook              start the webhook -> OpenAlgo order server
   python -m expiry_lab live [--direct]   watch the market on D0/D1 and fire the hook on triggers
   python -m expiry_lab status            recent signals and orders
+  python -m expiry_lab check             readiness check: OpenAlgo, key, quotes, expiry, playbook, hook
   python -m expiry_lab demo              full offline run on synthetic data (data/demo)
 """
 from __future__ import annotations
@@ -16,13 +17,13 @@ import json
 import logging
 import os
 import time as _time
-from datetime import date, datetime, time
+from datetime import time
 from pathlib import Path
 
 import pandas as pd
 
 from .analysis import analyze_window
-from .calendar import day_type
+from .calendar import day_type, ist_now, ist_today
 from .charts import build_report
 from .config import Settings, get_settings
 from .learner import learn, load_model, load_playbook
@@ -113,13 +114,13 @@ def cmd_collect(s: Settings, store: Store) -> None:
     from .sources import collect_snapshot
 
     oa = OpenAlgo(s.openalgo_host, s.openalgo_api_key)
-    kind = day_type(date.today(), s.expiry_weekday, s.holidays)
+    kind = day_type(ist_today(), s.expiry_weekday, s.holidays)
     if kind not in ("D0", "D1"):
         print(f"Today is {kind}; collect only runs on D0/D1.")
         return
-    while datetime.now().time() < time(9, 15):
+    while ist_now().time() < time(9, 15):
         _time.sleep(20)
-    while time(9, 15) <= datetime.now().time() <= time(15, 30):
+    while time(9, 15) <= ist_now().time() <= time(15, 30):
         try:
             n = collect_snapshot(s, store, oa)
             log.info("recorded %s premium quotes", n)
@@ -128,10 +129,87 @@ def cmd_collect(s: Settings, store: Store) -> None:
         _time.sleep(60)
 
 
+def cmd_check(s: Settings) -> bool:
+    """Pre-flight: is everything ready for a live day? Prints ✓/✗ with what to fix."""
+    import httpx
+
+    from .calendar import next_expiry, option_symbol, parse_expiry_list
+    from .learner import load_playbook
+    from .openalgo_client import OpenAlgo
+
+    ok_all = True
+
+    def line(ok, name, detail="", fix=""):
+        nonlocal ok_all
+        mark = "✓" if ok else ("!" if ok is None else "✗")
+        if ok is False:
+            ok_all = False
+        print(f" {mark} {name}" + (f" — {detail}" if detail else "") + (f"\n     fix: {fix}" if fix and not ok else ""))
+
+    print("SENSEX Expiry Lab — readiness check\n")
+    today = ist_today()
+    kind = day_type(today, s.expiry_weekday, s.holidays)
+    line(True, "India time", f"{ist_now():%a %d %b %H:%M} IST, today is {kind}")
+    line(Path(".env").exists(), ".env file", str(Path(".env").resolve()), "copy .env.example to .env and fill it in")
+    line(bool(s.hook_token) and s.hook_token != "change-me-to-a-long-random-string", "HOOK_TOKEN set",
+         fix="put any long random string in HOOK_TOKEN")
+    line(None if s.dry_run else True, "Order mode", "PRACTICE (DRY_RUN=true, no real orders)" if s.dry_run
+         else "LIVE — real orders will be placed")
+    if not s.openalgo_api_key or s.openalgo_api_key == "your-openalgo-api-key":
+        line(False, "OPENALGO_API_KEY", "not set", "OpenAlgo → API Key page, paste into .env")
+    else:
+        oa = OpenAlgo(s.openalgo_host, s.openalgo_api_key)
+        spot = None
+        try:
+            spot = float(oa.quote(s.underlying, s.index_exchange).get("ltp") or 0) or None
+            line(bool(spot), f"OpenAlgo at {s.openalgo_host}", f"SENSEX LTP {spot:,.2f}" if spot else "no LTP")
+        except Exception as e:  # noqa: BLE001
+            line(False, f"OpenAlgo at {s.openalgo_host}", str(e)[:150],
+                 "start OpenAlgo, log in to your broker today, check OPENALGO_HOST and the API key")
+        exps = []
+        try:
+            exps = parse_expiry_list(oa.expiries(s.underlying, s.options_exchange))
+            e = next_expiry(today, s.expiry_weekday, s.holidays, exps)
+            rule = next_expiry(today, s.expiry_weekday, s.holidays)
+            line(e == rule if exps else None, "Expiry", f"broker says {e}, weekday rule says {rule}",
+                 "set EXPIRY_WEEKDAY / HOLIDAYS so the rule matches the broker")
+        except Exception as err:  # noqa: BLE001
+            e = next_expiry(today, s.expiry_weekday, s.holidays)
+            line(None, "Expiry list", f"unavailable ({str(err)[:80]}); using rule: {e}")
+        if spot:
+            k = int(round(spot / s.strike_step) * s.strike_step)
+            for opt in ("CE", "PE"):
+                sym = option_symbol(s.underlying, e, k, opt)
+                try:
+                    ltp = oa.quote(sym, s.options_exchange).get("ltp")
+                    line(ltp is not None, f"Option quote {sym}", f"LTP {ltp}")
+                except Exception as err:  # noqa: BLE001
+                    line(False, f"Option quote {sym}", str(err)[:120],
+                         "symbol format/expiry mismatch: check the symbol in OpenAlgo's search and tell me")
+        try:
+            from datetime import timedelta
+            h = oa.history(s.underlying, s.index_exchange, f"{s.interval_min}m", today - timedelta(days=5), today)
+            line(len(h) > 0, "5-min history", f"{len(h)} bars, last {h.index[-1]:%d %b %H:%M}" if len(h) else "empty")
+        except Exception as err:  # noqa: BLE001
+            line(False, "5-min history", str(err)[:120], "check the broker supports intraday history in OpenAlgo")
+    pb = load_playbook(s)
+    line(bool(pb), "Playbook (learning)", f"built {pb.get('built_at')} from {pb.get('window', {}).get('sessions')} sessions"
+         if pb else "missing", "run: python -m expiry_lab update")
+    try:
+        base = (s.hook_url or f"http://{s.hook_host}:{s.hook_port}/hook").rsplit("/hook", 1)[0]
+        r = httpx.get(base + "/health", timeout=3).json()
+        line(True, "Hook server", f"running at {base}/  (dry_run={r.get('dry_run')}, kill_switch={r.get('kill_switch')})")
+    except Exception:  # noqa: BLE001
+        line(None, "Hook server", "not running yet", "start it with: python -m expiry_lab hook")
+    print("\n" + ("READY. Start `hook`, then `live`, and open the screen." if ok_all else
+                  "NOT READY: fix the ✗ items above."))
+    return ok_all
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="expiry_lab", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["update", "refresh", "learn", "collect", "hook", "live", "status", "demo"])
+    ap.add_argument("command", choices=["update", "refresh", "learn", "collect", "hook", "live", "status", "demo", "check"])
     ap.add_argument("--source", choices=["auto", "openalgo", "yahoo", "synthetic"])
     ap.add_argument("--direct", action="store_true", help="live: call OpenAlgo directly instead of the hook URL")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -153,6 +231,8 @@ def main(argv: list[str] | None = None) -> None:
         print("refresh:", refresh(s, store, a.source))
     if a.command in ("update", "learn"):
         _analyse_learn_report(s, store)
+    elif a.command == "check":
+        raise SystemExit(0 if cmd_check(s) else 1)
     elif a.command == "collect":
         cmd_collect(s, store)
     elif a.command == "hook":

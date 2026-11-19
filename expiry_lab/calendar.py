@@ -7,6 +7,18 @@ OpenAlgo's expiry list (when reachable) overrides this rule.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+IST_ZONE = ZoneInfo("Asia/Kolkata")
+
+
+def ist_now() -> datetime:
+    """Current India time as a naive datetime, whatever the computer's own time zone is."""
+    return datetime.now(IST_ZONE).replace(tzinfo=None)
+
+
+def ist_today() -> date:
+    return ist_now().date()
 
 MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 

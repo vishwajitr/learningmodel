@@ -63,6 +63,20 @@ python -m expiry_lab demo
 
 Open `data/demo/report/index.html`.
 
+## Run it on your computer (localhost)
+
+1. Start OpenAlgo and log in to your broker for the day.
+2. `pip install -r requirements.txt`, then copy `.env.example` to `.env` and set `OPENALGO_API_KEY` and `HOOK_TOKEN`.
+   Keep `DRY_RUN=true`.
+3. `python -m expiry_lab check`: tests the OpenAlgo connection, SENSEX quote, option symbol format, expiry,
+   history, playbook and hook, and tells you what to fix.
+4. `python -m expiry_lab update`: learn from the last 4 weeks (run every evening).
+5. Terminal 1: `python -m expiry_lab hook`. Terminal 2: `python -m expiry_lab live`.
+6. Open **http://127.0.0.1:8787/**.
+
+`live` only trades on D0/D1. To watch the screen on another day in practice mode, set `TRADE_DAYS=D0,D1,OTHER`.
+All times use India time, whatever your computer's time zone.
+
 ## Daily use
 
 ```bash
@@ -71,6 +85,7 @@ python -m expiry_lab hook       # start the order hook (keep running during mark
 python -m expiry_lab live       # on D0/D1: watch 5m bars and POST to the hook when the trigger fires
 python -m expiry_lab collect    # optional, on D0/D1: record real CE/PE premiums every minute
 python -m expiry_lab status     # recent signals and orders
+python -m expiry_lab check      # readiness check before market
 ```
 
 `live --direct` skips the HTTP hop and calls OpenAlgo from the same process (same safety checks).

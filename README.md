@@ -1,133 +1,161 @@
-# SENSEX Expiry AI — D+0 / D+1 option-buying alerts
+# SENSEX Expiry Lab — D1 (day before expiry) & D0 (expiry day)
 
-ML model + Claude second opinion + Telegram alerts for SENSEX weekly expiry, on OpenAlgo.
-**Buy-only** (CE on bullish, PE on bearish). Alerts only — no orders are placed.
-
-- **D+0** = expiry day · **D+1** = the trading day before expiry
-- Real expiry dates come from OpenAlgo `expiry()`, so holiday shifts are handled. The `EXPIRY_WEEKDAY` + `HOLIDAYS` rule is a fallback.
-
-## How it works
+Learns how SENSEX behaves on the **day before expiry (D1)** and **expiry day (D0)** from a rolling
+**last-4-weeks** window, draws it as charts, and fires a **hook → OpenAlgo** order when the live trigger hits.
 
 ```
-OpenAlgo 5m candles ──► features (up to decision time, no look-ahead)
-                         │
-                         ▼
-        D0 model / D1 model (HistGradientBoosting, P(CE) P(PE) P(SKIP))
-                         │ only if ML says CE/PE
-                         ▼
-        Claude (tool-use → Pydantic ClaudeVerdict: action, confidence, strike, reasoning, risk)
-                         │ must agree (REQUIRE_CLAUDE_AGREEMENT)
-                         ▼
-        ATM/OTM option symbol + LTP via optionsymbol()/quotes()  ──►  Telegram alert
-                         │
-        15:20 EOD: score each alert (TARGET / STOP / TIME_EXIT) → SQLite journal → Telegram report
-        Nightly `update`: refetch data + retrain = the model keeps learning
+           free Yahoo (^BSESN 5m, ^INDIAVIX)  ─┐
+ OpenAlgo history + live option quotes  ───────┼─► SQLite store (only the last 28 days are kept)
+                                               │
+                                               ▼
+   analysis: trend shifts · points available per slot · premium path & decay · opening-range breaks
+                                               │
+                                               ▼
+   learner: playbook.json (D1 / D0 stats, targets, stops, best slots) + small model (walk-forward checked)
+                                               │
+            ┌──────────────────────────────────┴───────────────┐
+            ▼                                                  ▼
+   report: data/report/index.html + charts            live engine (D0/D1 only)
+                                                               │ trigger
+                                                               ▼
+                                  POST /hook  ──►  safety checks  ──►  OpenAlgo /api/v1/optionsorder
+                                (also callable from TradingView, ChartInk, curl)
 ```
 
-**Labels (option-buyer view):** from each decision time (09:45, 10:15, 10:45, 11:30, 12:30, 13:30),
-`BUY_CE` if the index goes up by the target before it falls by the stop, `BUY_PE` for the reverse, otherwise `SKIP`. Exit 15:15.
-Defaults: D0 +200/−120 pts, D1 +250/−150 pts.
+## What it learns from the last 4 weeks
 
-**Training:** every trading day goes into the dataset, with `dte` as a feature. Each bucket's model gives
-its own days 3× weight (`BUCKET_WEIGHT`), so ~50 expiry days a year still get a usable model.
-Results are checked with an expanding walk-forward split by date, scored only on that bucket's days.
+| Question | How it is measured | Where to see it |
+|---|---|---|
+| **How is the trend shifting?** | Zig-zag swing pivots: a reversal ≥ `SWING_POINTS` (or 4 typical bars on wild days) is a trend shift. Legs between pivots give points and minutes. | `paths.png` (▼/▲ = swing high/low, leg points labelled), `shift_hours.png` (which hour shifts happen) |
+| **How many points can be captured?** | From every 15-min slot 09:30–14:45: max up and max down in the next `HORIZON_MIN`, and which side moved `MOVE_POINTS` first (UP / DOWN / CHOP). | `capture.png` rows 1–2, best slots ★ |
+| **How does premium behave?** | Opening-ATM CE & PE through the day, re-centred ATM straddle decay, and the best premium gain % a buyer got from each slot. | `premiums.png`, `decay.png`, `capture.png` row 3 |
+| **Does the opening range break work?** | First close outside the first 15 min range, and whether it then ran `MOVE_POINTS` in that direction. | report table "ORB follow-through" |
+| **Targets / stops** | Target = a move reached in ~60% of slots that moved; stop = typical heat taken, never tighter than `MOVE_POINTS` or half the target. | `playbook.json`, report |
+
+Plus a small multinomial logistic regression (features: time of day, move from open, distance from average
+price, opening-range position, EMA9–21 gap, 15/30-min slope, recent volatility, range so far, gap, days to
+expiry, VIX). It is tested walk-forward on the latest week; **if it does not beat "always guess the most common
+outcome", it is marked untrusted and the live engine uses rules only.**
+
+### Free resources used
+* **Data:** Yahoo Finance via `yfinance` — `^BSESN` 5-minute candles (Yahoo keeps ~60 days of 5m, enough for
+  4 weeks) and `^INDIAVIX` daily. No key needed.
+* **Premiums:** free sources don't keep intraday premium history of expired weeklies, so for those days the
+  premium path is rebuilt with **Black-Scholes** from the index path and the previous day's India VIX
+  (marked `model` in the report). When OpenAlgo is connected, real option candles are pulled where the broker
+  still serves them, and `collect` records live CE/PE quotes every minute on D0/D1 (marked `real`/`live`).
+  Real data always replaces modelled data.
+* **Expiry-day ideas built in** (widely taught, free): theta decay of the straddle into expiry, the afternoon
+  "gamma" move on D0, opening-range breakout, trading above/below average price, EMA trend filter.
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env        # fill in ANTHROPIC_API_KEY, TELEGRAM_*, OPENALGO_API_KEY
-
-python -m sensex_ai.cli test-telegram
-python -m sensex_ai.cli fetch               # 1 year of 5m SENSEX → data/SENSEX_5m.csv
-python -m sensex_ai.cli train               # prints walk-forward stats for D0 and D1
-python -m sensex_ai.cli replay --date 2026-11-13            # replay a past D0/D1 day (uses Claude)
-python -m sensex_ai.cli replay --date 2026-11-13 --no-claude
-python -m sensex_ai.cli run                 # live; exits at once if today isn't D0/D1
+cp .env.example .env      # set OPENALGO_API_KEY, HOOK_TOKEN; keep DRY_RUN=true to start
 ```
 
-Offline test with no keys at all: `TELEGRAM_DRY_RUN=true python -m sensex_ai.cli train --synthetic`.
-
-## Full auto mode (recommended)
-
-One process does everything; no cron needed:
+Try everything offline first (synthetic data, no keys, nothing sent):
 
 ```bash
-python -m sensex_ai.cli auto          # or:  docker compose up -d --build
+python -m expiry_lab demo
 ```
 
-- On first start: fetches 1 year of data and trains both models if none exist.
-- Weekdays 09:05 IST: runs the day (silently does nothing unless today is D+0/D+1), alerts, 15:20 EOD report.
-- Weekdays 19:30 IST: refetch + retrain (continuous learning).
-- Errors go to Telegram and the loop keeps going; `data/scheduler_state.json` stops jobs repeating after a restart.
-- Docker: set `OPENALGO_HOST=http://host.docker.internal:5000` in `.env`. Needs an always-on machine/VPS
-  that can reach your OpenAlgo (and the broker must be logged in each day).
-- Tests: `python -m pytest tests`
+Open `data/demo/report/index.html`.
 
-## Schedule (cron alternative)
+## Daily use
+
+```bash
+python -m expiry_lab update     # pull last 4 weeks → analyse → learn → replay → report (run each evening)
+python -m expiry_lab hook       # start the order hook (keep running during market hours)
+python -m expiry_lab live       # on D0/D1: watch 5m bars and POST to the hook when the trigger fires
+python -m expiry_lab collect    # optional, on D0/D1: record real CE/PE premiums every minute
+python -m expiry_lab status     # recent signals and orders
+```
+
+`live --direct` skips the HTTP hop and calls OpenAlgo from the same process (same safety checks).
+
+Cron example (IST machine):
 
 ```cron
-# live scan every weekday at 09:10 (exits on non-D0/D1 days)
-10 9 * * 1-5  cd /path/sensex_expiry_ai && python -m sensex_ai.cli run    >> logs/run.log 2>&1
-# nightly learning: refresh data + retrain
-30 19 * * 1-5 cd /path/sensex_expiry_ai && python -m sensex_ai.cli update >> logs/update.log 2>&1
+40 18 * * 1-5  cd /path/learningmodel && python -m expiry_lab update  >> data/update.log 2>&1
+10 9  * * 1-5  cd /path/learningmodel && python -m expiry_lab hook    >> data/hook.log 2>&1
+15 9  * * 1-5  cd /path/learningmodel && python -m expiry_lab live    >> data/live.log 2>&1
+15 9  * * 1-5  cd /path/learningmodel && python -m expiry_lab collect >> data/collect.log 2>&1
 ```
 
-## Tuning knobs (.env)
+`live` and `collect` exit at once on days that aren't D0/D1. Stop the hook after market (e.g. `pkill -f "expiry_lab hook"` at 15:35).
 
-| Setting | Effect |
+## The hook (trigger → OpenAlgo order)
+
+`POST http://127.0.0.1:8787/hook` with header `X-Hook-Token: <HOOK_TOKEN>` (or `"token"` in the body):
+
+| action | What OpenAlgo gets |
 |---|---|
-| `MIN_CONFIDENCE` | Higher = fewer, stronger ML calls |
-| `REQUIRE_CLAUDE_AGREEMENT` | `false` = Claude only comments, ML decides |
-| `TARGET/STOP_POINTS_D0/D1` | Changes the labels → retrain after changing |
-| `DECISION_TIMES` | Changes the scan slots and training rows → retrain |
-| `MAX_ALERTS_PER_DAY` | Cap; the same side is never alerted twice in a day |
-| `SEND_SKIP_ALERTS` | Also post "no trade" at each slot |
+| `BUY_CE` / `BUY_PE` | `/api/v1/optionsorder` — underlying SENSEX, exchange BSE_INDEX, current expiry (`19NOV26` format), `offset` (ATM/OTM1/…), BUY, `lots × LOT_SIZE`, MARKET, `PRODUCT`. Falls back to `/placeorder` with a computed ATM symbol on older OpenAlgo builds. |
+| `EXIT` | `/api/v1/placeorder` SELL of the open position's symbol and quantity |
+| `EXIT_ALL` | `/api/v1/closeposition` for `STRATEGY_NAME` |
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/hook -H "Content-Type: application/json" \
+  -H "X-Hook-Token: $HOOK_TOKEN" -d '{"action":"BUY_CE","lots":1,"offset":"ATM","reason":"manual test"}'
+```
+
+```bash
+curl -s http://127.0.0.1:8787/health
+```
+
+TradingView alert message (needs the hook reachable from the internet — put it behind HTTPS, e.g. a reverse proxy, and keep the token secret):
+
+```json
+{"token": "<HOOK_TOKEN>", "action": "BUY_PE", "lots": 1, "reason": "TV {{ticker}} {{close}}"}
+```
+
+**Safety checks on every entry** (exits are never blocked): `DRY_RUN` (default **true** — logs exactly what
+would be sent, sends nothing) · kill switch (`data/KILL` file, or `POST /kill`) · market hours · only on
+`TRADE_DAYS` (D0, D1) · not after `ENTRY_END` · `MAX_TRADES_PER_DAY` · one open position at a time ·
+`lots ≤ MAX_LOTS`. The API key is never written to the database.
+
+## Live trigger rules
+
+* **BUY_CE:** 5m close above the opening-range high, above the average price, EMA9 > EMA21
+* **BUY_PE:** the mirror image
+* skipped if the playbook says this slot was mostly chop (>60%) in the last 4 weeks
+* if the model passed its walk-forward check, also needs P(direction) ≥ `MIN_PROB`
+* **Exit:** playbook target / stop in index points, EMA9/21 crossing against the trade (trend shift), or `EXIT_TIME`
+
+The report's **replay** section runs these exact rules over the stored D0/D1 days with modelled premiums.
+It is **in-sample** (the playbook was learnt on the same days) and ignores costs and slippage, so treat it as a
+sanity check, not expected profit.
+
+## Honest limits
+
+* 4 weeks ≈ 20 sessions, of which only ~4 are D0 and ~4 are D1. That is a small sample: the playbook shows
+  what *recently* happened, it does not guarantee the next expiry. That is why the model has to pass a
+  walk-forward test before it can gate trades.
+* Yahoo data is delayed and occasionally has gaps; for live trading use OpenAlgo data (the default when
+  `OPENALGO_API_KEY` works).
+* Modelled premiums use one IV for the whole day; real expiry-day IV moves a lot. Run `collect` on D0/D1 so
+  real premiums replace modelled ones over the next weeks.
+* Start with `DRY_RUN=true`, check `status` and the report for a few expiries before setting it to false.
 
 ## Files
 
 ```
-sensex_ai/
-  config.py          Pydantic Settings (.env)
-  schemas.py         FeatureRow, MLPrediction, ClaudeVerdict, TradeAlert
-  expiry.py          D0/D1 calendar, holiday shift, DDMMMYY formatting
-  data.py            OpenAlgo history/expiry/option quotes + CSV cache + synthetic data
-  features.py        features + option-buyer labels
-  model.py           training, walk-forward, Predictor
-  claude_analyst.py  Claude review, forced tool-use → validated ClaudeVerdict
-  engine.py          one decision step + outcome scoring
-  telegram.py        Bot API sender + alert format
-  journal.py         SQLite log of alerts/outcomes
-  live.py            live day runner + EOD report
-  cli.py             commands
+expiry_lab/
+  config.py          settings from .env
+  calendar.py        D0/D1 labels, expiry (Thursday + holiday shift), OpenAlgo symbol format
+  store.py           SQLite, rolling 28-day prune
+  sources.py         OpenAlgo / Yahoo / synthetic data, premium snapshots
+  premium.py         Black-Scholes premium model
+  analysis.py        trend shifts, slot capture, premium paths, opening range
+  learner.py         playbook.json + model.joblib
+  charts.py          PNG charts + HTML report
+  live.py            trigger rules, replay, live loop
+  executor.py        signal → OpenAlgo order with safety checks
+  openalgo_client.py REST client (/api/v1/…)
+  hook.py            Flask webhook server
+tests/test_lab.py
 ```
 
-## Caveats
-- Labels are on **index points**, not premium. On D0 a 200-pt move can still lose money if it comes late
-  (theta) or IV crushes. Check `option_ltp` in alerts against outcomes in `data/journal.sqlite`.
-- Don't trust the synthetic-data numbers; they only show the pipeline runs. Use the `train` output on real data.
-- Confirm SENSEX lot size: `optionsymbol()` overrides `LOT_SIZE` when live.
-- Paper-trade for several expiries before trading real money on any alert.
-
-## Deploy on Railway
-
-1. Push this repo to GitHub, then Railway → New Project → Deploy from GitHub repo (it picks up `railway.json` + `Dockerfile`).
-2. Add a **Volume** mounted at `/app/data` (journal, candles, scheduler state) and a second at `/app/models`
-   (or set `MODEL_DIR=/app/data/models` and use one volume).
-3. Service → Variables: paste everything from `.env.example` (ANTHROPIC_API_KEY, TELEGRAM_*, OPENALGO_*, etc.).
-4. **OpenAlgo must be reachable from Railway.** `127.0.0.1` will not work. Either deploy OpenAlgo as a second
-   Railway service and use its private URL (`http://<service>.railway.internal:5000`), or expose your own
-   OpenAlgo over HTTPS and set `OPENALGO_HOST` to that URL. The broker still needs its daily login.
-5. Run a single replica only (two replicas would send duplicate alerts).
-
-## Deploy on Oracle Cloud Always Free (free, always-on)
-
-1. Create an Oracle Cloud account (card needed for verification). Compute → Create instance →
-   Ubuntu 22.04/24.04, shape **VM.Standard.A1.Flex** (Arm, 1–2 OCPU, 6–12 GB) or **VM.Standard.E2.1.Micro**; add your SSH key.
-   If "out of capacity", retry another availability domain/later.
-2. SSH in: `ssh ubuntu@<public-ip>`, then run `bash <(curl -fsSL https://raw.githubusercontent.com/vishwajitr/learningmodel/claude/cool-ptolemy-a0mwkk/deploy/oracle-setup.sh)`
-3. Edit `~/sensex_expiry_ai/.env` (keys; `OPENALGO_HOST` must be a URL reachable from the VM, e.g. your Railway OpenAlgo
-   URL or OpenAlgo running on the same VM), set `TELEGRAM_DRY_RUN=false`, run the script again.
-4. Check: `sudo docker compose logs -f`. Outbound access only is needed - no open ports.
-5. Keep the VM from being reclaimed as idle: the nightly retrain plus daily scans give it regular CPU use; also keep a
-   payment method on the account and log in to the console now and then.
+Tests: `python -m pytest -q tests`

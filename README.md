@@ -74,7 +74,7 @@ Open `data/demo/report/index.html`.
 5. Terminal 1: `python -m expiry_lab hook`. Terminal 2: `python -m expiry_lab live`.
 6. Open **http://127.0.0.1:8787/**.
 
-`live` only trades on D0/D1. To watch the screen on another day in practice mode, set `TRADE_DAYS=D0,D1,OTHER`.
+`live` only trades on D0/D1. To see the screen working on any day, run `hook` and then `python -m expiry_lab replay`: it replays the latest stored expiry day through the engine in practice mode (no orders). To watch the real market on another day in practice mode, set `TRADE_DAYS=D0,D1,OTHER`.
 All times use India time, whatever your computer's time zone.
 
 ## Daily use

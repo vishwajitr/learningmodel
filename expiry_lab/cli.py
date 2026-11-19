@@ -49,10 +49,45 @@ def _analyse_learn_report(s: Settings, store: Store) -> Path:
             trades += replay_day(day, d, s, pb, model, prev_close, v)
         prev_close = float(day["close"].iloc[-1]) if len(day) else prev_close
     pd.DataFrame(trades).to_csv(s.data_dir / "replay_trades.csv", index=False)
+    demo_screen = build_live_demo(s, candles, days, pb, model)
+    if demo_screen:
+        print(f"Live screen replay: {demo_screen.resolve()}")
     report = build_report(days, pb, s.report_dir, trades)
     _print_summary(pb, trades)
     print(f"\nReport: {report.resolve()}")
     return report
+
+
+def build_live_demo(s: Settings, candles: pd.DataFrame, days, pb: dict, model) -> Path | None:
+    """Replay the latest D0 (else D1) day through the live engine and save the live screen with it."""
+    import tempfile
+
+    from .engine import simulate_day
+    from .executor import Executor
+
+    pick = [d for d in days if d.kind == "D0"] or [d for d in days if d.kind == "D1"]
+    if not pick:
+        return None
+    d = pick[-1]
+    day = candles[candles.index.date == d.day]
+    prev = candles[candles.index.date < d.day]
+    prev_close = float(prev["close"].iloc[-1]) if len(prev) else None
+    with tempfile.TemporaryDirectory() as tmp:
+        sim = Settings()
+        sim.data_dir, sim.dry_run = Path(tmp), True
+        sim_store = Store(sim.db_path, sim.retention_days)
+
+        def send(order, now):
+            ex = Executor(sim, sim_store, now=lambda: now.tz_localize(None).to_pydatetime())
+            return ex.handle(order["action"], lots=order.get("lots"), reason=order.get("reason", ""),
+                             spot=order.get("spot"))
+
+        states = simulate_day(sim, day, d.kind, d.expiry, pb, model, prev_close, d.stats["vix"], d.stats["dte"], send)
+    page = (Path(__file__).parent / "static" / "dashboard.html").read_text(encoding="utf-8")
+    inject = "<script>window.__DEMO__=" + json.dumps(states, default=str, separators=(",", ":")) + ";</script>"
+    out = s.report_dir / "live_demo.html"
+    out.write_text(page.replace("<script>\nconst DEMO", inject + "\n<script>\nconst DEMO", 1), encoding="utf-8")
+    return out
 
 
 def _print_summary(pb: dict, trades: list[dict]) -> None:

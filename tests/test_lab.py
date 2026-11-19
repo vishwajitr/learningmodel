@@ -124,3 +124,43 @@ def test_live_mode_sends_openalgo_payload(s):
     assert ex.handle("EXIT")["status"] == "success"
     name, kw = oa.calls[1]
     assert name == "placeorder" and kw["action"] == "SELL" and kw["symbol"] == "SENSEX19NOV2684500CE"
+
+
+def test_engine_replay_opens_and_closes_trades(s):
+    from expiry_lab.analysis import analyze_window
+    from expiry_lab.engine import simulate_day
+
+    st = Store(s.db_path, 28)
+    st.upsert_candles(synthetic_candles(28), "synthetic")
+    c = st.candles()
+    days = analyze_window(c, s)
+    pb = learn(days, s)
+    d = [x for x in days if x.kind == "D0"][-1]
+    sent = []
+
+    def send(order, now):
+        sent.append(order["action"])
+        return {"status": "dry_run", "symbol": "SENSEXTEST", "quantity": 20}
+
+    states = simulate_day(s, c[c.index.date == d.day], "D0", d.expiry, pb, None, None, 13.0, 0, send)
+    assert states[-1]["checks_count"] == len(states)
+    assert all(x in ("BUY_CE", "BUY_PE", "EXIT") for x in sent)
+    entries = [x for x in sent if x != "EXIT"]
+    assert len(entries) <= s.max_trades_per_day
+    in_trade = [x for x in states if x["position"]]
+    if in_trade:
+        p = in_trade[0]["position"]
+        assert p["tp_spot"] != p["sl_spot"] and p["running_sec"] >= 0
+        assert in_trade[0]["checks"]["CE"] and in_trade[0]["alerts"]
+    # earlier states must not see later trades
+    assert len(states[0]["trades"]) == 0
+
+
+def test_dashboard_routes(s):
+    from expiry_lab.hook import create_app
+
+    app = create_app(s).test_client()
+    assert b"SENSEX Expiry Lab" in app.get("/").data
+    assert app.get("/api/state").status_code == 404
+    (s.data_dir / "live_state.json").write_text('{"status": "WAITING"}')
+    assert app.get("/api/state").json["status"] == "WAITING"

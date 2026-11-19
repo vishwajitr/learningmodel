@@ -86,6 +86,28 @@ Cron example (IST machine):
 
 `live` and `collect` exit at once on days that aren't D0/D1. Stop the hook after market (e.g. `pkill -f "expiry_lab hook"` at 15:35).
 
+## Live screen
+
+While `hook` and `live` run, open **http://127.0.0.1:8787/** for the live trading screen (refreshes every 2 s):
+
+| Panel | Shows |
+|---|---|
+| Top bar | "Checking market" pulse, D0/D1, expiry, PRACTICE/LIVE, **countdown to the next check**, number of checks done |
+| Status line | Watching (closest side and how many conditions are met) · In trade (P&L, distance to TP/SL) · Done |
+| SENSEX spot | Price, change vs previous close and open, opening range, VWAP, EMA9/21; chart with every check, VWAP, opening range, entries ▲, exits ●, TP/SL lines |
+| Options | ATM strike, CE and PE price and change; chart of the day's opening-ATM CE & PE plus the option you hold |
+| Entry checklist | Every condition for BUY CE and BUY PE with ✓/✕ and its value, on each closed 5-min bar |
+| Active trade | Symbol, qty, **activated at**, **running for** (ticking), entry/now spot and premium, P&L in points and ₹, **TP / SL** and distance, a SL↔TP bar |
+| Today vs last 4 weeks | Range, trend changes and premium left so far against the typical value learnt for that day type |
+| Trades today | Entry, exit, points, ₹, exit reason, total |
+| Alert log | Every check, signal, order and exit with time, filterable |
+
+Learning from current data: every poll saves today's bars and live option prices into the 4-week store,
+and the evening `update` re-learns from the new window.
+
+`python -m expiry_lab demo` also writes `data/demo/report/live_demo.html`: the same screen replaying a
+sample expiry day (play / pause / speed / seek).
+
 ## The hook (trigger → OpenAlgo order)
 
 `POST http://127.0.0.1:8787/hook` with header `X-Hook-Token: <HOOK_TOKEN>` (or `"token"` in the body):
@@ -151,7 +173,9 @@ expiry_lab/
   analysis.py        trend shifts, slot capture, premium paths, opening range
   learner.py         playbook.json + model.joblib
   charts.py          PNG charts + HTML report
-  live.py            trigger rules, replay, live loop
+  live.py            entry checklist, exit rules, replay, live loop
+  engine.py          the trading day as a state machine (feeds the live screen)
+  static/dashboard.html  the live screen
   executor.py        signal → OpenAlgo order with safety checks
   openalgo_client.py REST client (/api/v1/…)
   hook.py            Flask webhook server

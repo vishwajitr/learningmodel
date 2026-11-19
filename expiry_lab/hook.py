@@ -4,6 +4,8 @@
                   "lots": 1, "offset": "ATM", "reason": "free text", "spot": 84512.3}
                  (token may also be sent as header X-Hook-Token)
     GET  /health  status, dry-run flag, open position, entries today
+    GET  /        live dashboard (timer, spot & option prices, entry checklist, active trade, alert log)
+    GET  /api/state   the live engine's latest state (data/live_state.json) as JSON
     POST /kill    {"token": "..."} turns the kill switch on (blocks all new entries)
 
 Anything can fire it: the built-in live engine, TradingView / ChartInk alerts, or curl.
@@ -12,8 +14,9 @@ from __future__ import annotations
 
 import hmac
 import logging
+from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
 from .config import Settings
 from .executor import Executor
@@ -55,6 +58,18 @@ def create_app(s: Settings, executor: Executor | None = None) -> Flask:
     def health():
         return jsonify({"status": "ok", "dry_run": s.dry_run, "position": ex.position(),
                         "entries_today": store.orders_today(), "kill_switch": s.kill_switch_path.exists()})
+
+    @app.get("/")
+    def dashboard():
+        html = (Path(__file__).parent / "static" / "dashboard.html").read_text(encoding="utf-8")
+        return Response(html, mimetype="text/html")
+
+    @app.get("/api/state")
+    def state():
+        path = s.data_dir / "live_state.json"
+        if not path.exists():
+            return jsonify({"error": "live engine not running yet - start `python -m expiry_lab live`"}), 404
+        return Response(path.read_text(), mimetype="application/json")
 
     @app.post("/kill")
     def kill():

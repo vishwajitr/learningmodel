@@ -44,29 +44,56 @@ def model_probs(model_bundle, feats: dict) -> dict[str, float]:
     return dict(zip(m.classes_, m.predict_proba(x)[0]))
 
 
+def entry_checks(bars: pd.DataFrame, i: int, kind: str, s: Settings, playbook: dict, model_bundle,
+                 prev_close: float | None, dte: int, vix: float) -> dict:
+    """The entry checklist for both sides, on bar i. Each item: name, ok (True/False/None = info only), value.
+    A side triggers when every item that is not None is True. The dashboard shows this same list."""
+    r, ts = bars.iloc[i], bars.index[i]
+    in_window = s.entry_start <= ts.time() <= s.entry_end
+    st = _slot_stats(playbook, kind, ts)
+    p_chop = float(st.get("p_chop", 0)) if st else 0.0
+    probs = model_probs(model_bundle, features_at(bars, i, prev_close, dte, vix))
+    trusted = bool(playbook.get("model", {}).get("trusted"))
+    win = f"{s.entry_start:%H:%M}–{s.entry_end:%H:%M}"
+    out = {"time": ts.strftime("%H:%M"), "probs": {k: round(float(v), 3) for k, v in probs.items()},
+           "model_trusted": trusted}
+    for side, up in (("CE", True), ("PE", False)):
+        p = float(probs.get("UP" if up else "DOWN", np.nan)) if probs else float("nan")
+        model_item = {"name": f"Model P({'UP' if up else 'DOWN'}) ≥ {s.min_prob:.2f}",
+                      "ok": (bool(p >= s.min_prob) if trusted else None),
+                      "value": ("-" if np.isnan(p) else f"{p:.2f}") + ("" if trusted else " · info")}
+        out[side] = [
+            {"name": f"Entry time window {win}", "ok": in_window, "value": ts.strftime("%H:%M")},
+            {"name": f"Close {'above' if up else 'below'} opening-range {'high' if up else 'low'}",
+             "ok": bool(r.close > r.or_high) if up else bool(r.close < r.or_low),
+             "value": f"{r.close:,.0f} vs {(r.or_high if up else r.or_low):,.0f}"},
+            {"name": f"{'Above' if up else 'Below'} average price (VWAP)",
+             "ok": bool(r.close > r.vwap) if up else bool(r.close < r.vwap), "value": f"{r.close - r.vwap:+.0f} pts"},
+            {"name": f"EMA9 {'above' if up else 'below'} EMA21",
+             "ok": bool(r.ema9 > r.ema21) if up else bool(r.ema9 < r.ema21), "value": f"{r.ema9 - r.ema21:+.1f}"},
+            {"name": "This time slot not mostly chop (last 4 weeks)", "ok": p_chop <= 0.6,
+             "value": f"chop {p_chop:.0%}" + (f" @ {st['slot']}" if st else "")},
+            model_item,
+        ]
+    return out
+
+
+def side_ready(items: list[dict]) -> bool:
+    return all(x["ok"] is not False for x in items)
+
+
 def evaluate_entry(bars: pd.DataFrame, i: int, kind: str, s: Settings, playbook: dict, model_bundle,
                    prev_close: float | None, dte: int, vix: float) -> tuple[str | None, float, str]:
-    r, ts = bars.iloc[i], bars.index[i]
-    if not (s.entry_start <= ts.time() <= s.entry_end):
-        return None, 0.0, ""
-    bull = r.close > r.or_high and r.close > r.vwap and r.ema9 > r.ema21
-    bear = r.close < r.or_low and r.close < r.vwap and r.ema9 < r.ema21
-    if not (bull or bear):
-        return None, 0.0, ""
-    side = "UP" if bull else "DOWN"
-    st = _slot_stats(playbook, kind, ts)
-    if st and st.get("p_chop", 0) > 0.6:
-        return None, 0.0, f"slot {st['slot']} mostly chop"
-    feats = features_at(bars, i, prev_close, dte, vix)
-    probs = model_probs(model_bundle, feats)
-    p = float(probs.get(side, np.nan)) if probs else float("nan")
-    trusted = bool(playbook.get("model", {}).get("trusted"))
-    if trusted and not (p >= s.min_prob):
-        return None, p, f"model P({side})={p:.2f} < {s.min_prob}"
-    why = (f"{kind} {ts:%H:%M} close {r.close:.0f} {'>' if bull else '<'} OR {'high' if bull else 'low'} "
-           f"{(r.or_high if bull else r.or_low):.0f}, {'above' if bull else 'below'} avg price, EMA9/21 "
-           f"{'up' if bull else 'down'}" + (f", model P={p:.2f}" if probs else ""))
-    return ("BUY_CE" if bull else "BUY_PE"), (p if probs else 0.0), why
+    chk = entry_checks(bars, i, kind, s, playbook, model_bundle, prev_close, dte, vix)
+    r = bars.iloc[i]
+    for side, action, up in (("CE", "BUY_CE", True), ("PE", "BUY_PE", False)):
+        if side_ready(chk[side]):
+            p = chk["probs"].get("UP" if up else "DOWN", 0.0)
+            why = (f"{kind} {chk['time']} close {r.close:,.0f} {'>' if up else '<'} OR {'high' if up else 'low'} "
+                   f"{(r.or_high if up else r.or_low):,.0f}, {'above' if up else 'below'} avg price, EMA9/21 "
+                   f"{'up' if up else 'down'}" + (f", model P={p:.2f}" if chk["probs"] else ""))
+            return action, float(p), why
+    return None, 0.0, ""
 
 
 def targets(playbook: dict, kind: str, s: Settings) -> tuple[float, float]:
@@ -164,7 +191,34 @@ def _today_bars(s: Settings) -> tuple[pd.DataFrame, float | None]:
     return df[df.index.date == today], (float(prev["close"].iloc[-1]) if len(prev) else None)
 
 
+def _quotes(s: Settings, strike: int, expiry: date, held: str | None,
+            fixed: int | None = None) -> tuple[float | None, ...]:
+    """Live LTPs from OpenAlgo: spot, ATM CE, ATM PE, held option, fixed-strike CE, PE. Failures come back None."""
+    from .calendar import option_symbol
+    from .openalgo_client import OpenAlgo
+
+    try:
+        oa = OpenAlgo(s.openalgo_host, s.openalgo_api_key)
+    except Exception:  # noqa: BLE001
+        return None, None, None, None, None, None
+
+    def q(sym, ex):
+        try:
+            v = oa.quote(sym, ex).get("ltp")
+            return float(v) if v is not None else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    spot = q(s.underlying, s.index_exchange)
+    ce = q(option_symbol(s.underlying, expiry, strike, "CE"), s.options_exchange)
+    pe = q(option_symbol(s.underlying, expiry, strike, "PE"), s.options_exchange)
+    fce = q(option_symbol(s.underlying, expiry, fixed, "CE"), s.options_exchange) if fixed else None
+    fpe = q(option_symbol(s.underlying, expiry, fixed, "PE"), s.options_exchange) if fixed else None
+    return spot, ce, pe, (q(held, s.options_exchange) if held else None), fce, fpe
+
+
 def run_live(s: Settings, store: Store, playbook: dict, model_bundle, direct: bool = False) -> None:
+    from .engine import DayEngine, write_state
     from .executor import Executor
 
     today = date.today()
@@ -183,47 +237,67 @@ def run_live(s: Settings, store: Store, playbook: dict, model_bundle, direct: bo
     vix = float(sorted(vix_hist.items())[-1][1]) if vix_hist else s.default_vix
     e = next_expiry(today, s.expiry_weekday, s.holidays, known)
     dte = int(np.busday_count(today, e)) if e > today else 0
-    tgt, stop = targets(playbook, kind, s)
-    pos, entries, seen = None, 0, None
-    log.warning("LIVE %s  target %.0f / stop %.0f pts  DRY_RUN=%s  mode=%s", kind, tgt, stop, s.dry_run,
-                "direct" if direct else "hook")
+    state_path = s.data_dir / "live_state.json"
+    mode = "PRACTICE" if s.dry_run else "LIVE"
+
+    eng: DayEngine | None = None
+    stop_at = (datetime.combine(today, s.exit_time) + timedelta(minutes=10)).time()
+    log.warning("LIVE %s  DRY_RUN=%s  mode=%s  dashboard: http://%s:%s/", kind, s.dry_run,
+                "direct" if direct else "hook", s.hook_host, s.hook_port)
     while True:
-        now = datetime.now()
-        if now.time() >= (datetime.combine(today, s.exit_time) + timedelta(minutes=5)).time():
-            if pos:
-                log.warning("EXIT %s", send({"action": "EXIT", "reason": "end of day safety"}))
+        now = pd.Timestamp.now(tz=IST)
+        nxt = now + pd.Timedelta(seconds=s.poll_seconds)
+        if now.time() >= stop_at:
+            if eng and eng.pos:
+                order = {"action": "EXIT", "reason": "end of day safety exit"}
+                eng.confirm(order, send(order), now)
+            if eng:
+                eng.status = "DONE"
+                write_state(state_path, eng.state(now, now, mode))
             break
         try:
             bars, prev_close = _today_bars(s)
         except Exception as err:  # noqa: BLE001
             log.error("data error: %s", err)
+            if eng:
+                eng.alert(now, "error", f"Data error: {err}")
+                write_state(state_path, eng.state(now, nxt, mode))
             _time.sleep(s.poll_seconds)
             continue
-        # only completed bars
-        bars = bars[bars.index + pd.Timedelta(minutes=s.interval_min) <= pd.Timestamp.now(tz=IST)]
-        if len(bars) < 3 or bars.index[-1] == seen:
+        if eng is None:
+            eng = DayEngine(s, playbook, model_bundle, kind, e, prev_close, vix, dte)
+            eng.alert(now, "info", f"Started: {kind}, expiry {e}, target {eng.tgt:.0f} / stop {eng.stop:.0f} pts, {mode}")
+        done = bars[bars.index + pd.Timedelta(minutes=s.interval_min) <= now]
+        if done.empty:
+            eng.status = "PRE_OPEN"
+            write_state(state_path, eng.state(now, nxt, mode))
             _time.sleep(s.poll_seconds)
             continue
-        seen = bars.index[-1]
-        b = add_indicators(bars, s.opening_range_min)
-        i = len(b) - 1
-        if pos is None and entries < s.max_trades_per_day:
-            action, p, why = evaluate_entry(b, i, kind, s, playbook, model_bundle, prev_close, dte, vix)
-            if action:
-                spot = float(b["close"].iloc[i])
-                store.log_signal(b.index[i].to_pydatetime(), kind, action, p, spot, why)
-                res = send({"action": action, "lots": s.lots, "reason": why, "spot": spot})
-                log.warning("SIGNAL %s -> %s", why, res)
-                if res.get("status") in ("success", "dry_run"):
-                    pos, entries = {"action": action, "entry_spot": spot, "i": i}, entries + 1
-        elif pos is not None:
-            why_exit = evaluate_exit(b, i, pos, tgt, stop, s)
-            if why_exit:
-                store.log_signal(b.index[i].to_pydatetime(), kind, "EXIT", 0.0, float(b["close"].iloc[i]), why_exit)
-                res = send({"action": "EXIT", "reason": why_exit})
-                log.warning("EXIT %s -> %s", why_exit, res)
-                if res.get("status") in ("success", "dry_run", "rejected"):
-                    pos = None
+        if eng.status == "PRE_OPEN":
+            eng.status = "WAITING"
+        last = float(bars["close"].iloc[-1])
+        spot, ce, pe, held, fce, fpe = _quotes(s, eng.atm(last), e, eng.pos["symbol"] if eng.pos else None,
+                                               eng.fixed_strike)
+        spot = spot or last
+        eng.source = "openalgo" if ce is not None else "estimated premiums"
+        order = eng.on_bars(done, now)
+        if order:
+            eng.on_tick(now, spot, ce, pe, held, fce, fpe, count=False)
+            res = send(order)
+            store.log_signal(now.to_pydatetime(), kind, order["action"], 0.0, spot, order.get("reason", ""))
+            eng.confirm(order, res, now)
+        order = eng.on_tick(now, spot, ce, pe, held, fce, fpe)
+        if order:
+            res = send(order)
+            store.log_signal(now.to_pydatetime(), kind, order["action"], 0.0, spot, order.get("reason", ""))
+            eng.confirm(order, res, now)
+        # learn from current data: today's bars and live premiums go into the 4-week store
+        store.upsert_candles(bars[["open", "high", "low", "close"]], "live")
+        if ce is not None and pe is not None:
+            k = eng.atm(spot)
+            store.upsert_premiums([(now.floor("min").isoformat(), e.isoformat(), k, "CE", ce, "live"),
+                                   (now.floor("min").isoformat(), e.isoformat(), k, "PE", pe, "live")])
+        write_state(state_path, eng.state(now, nxt, mode))
         _time.sleep(s.poll_seconds)
 
 

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SENSEX Expiry Lab — Live</title>
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--ink:#0b0b0b;--ink2:#52514e;--muted:#8a8984;--grid:#e6e5e1;
+--blue:#2a78d6;--orange:#eb6834;--good:#0f8a5f;--bad:#c93a3a;--warn:#b77900;--goodbg:#e3f5ec;--badbg:#fbe6e6;--warnbg:#fff4dc}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{max-width:1280px;margin:0 auto;padding:14px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px}
+h1{font-size:19px;margin:0 8px 0 0}
+.badge{border-radius:14px;padding:3px 10px;font-size:12px;font-weight:600;background:#eceae5;color:var(--ink)}
+.badge.live{background:var(--goodbg);color:var(--good)} .badge.practice{background:var(--warnbg);color:var(--warn)}
+.badge.real{background:var(--badbg);color:var(--bad)}
+.pulse{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--good);margin-right:6px;animation:p 1.4s infinite}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(15,138,95,.5)}100%{box-shadow:0 0 0 9px rgba(15,138,95,0)}}
+.timer{margin-left:auto;display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--grid);border-radius:10px;padding:6px 12px}
+.timer .bar{width:140px;height:6px;background:var(--grid);border-radius:3px;overflow:hidden}
+.timer .bar i{display:block;height:100%;background:var(--blue);width:0}
+.timer b{font-variant-numeric:tabular-nums}
+.small{font-size:12px;color:var(--ink2)}
+.status{border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:16px;font-weight:600;border:1px solid var(--grid);background:var(--card)}
+.status.in{background:var(--goodbg);border-color:#b8e4cd} .status.done{background:#eceae5}
+.status .small{font-weight:400;display:block;margin-top:2px}
+.grid{display:grid;gap:12px} .g2{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} .g3{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.2fr)}
+@media(max-width:900px){.g2,.g3{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--grid);border-radius:10px;padding:12px 14px;min-width:0}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2);margin:0 0 8px;font-weight:700}
+.big{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.chg{font-weight:600;margin-left:8px;font-variant-numeric:tabular-nums} .up{color:var(--good)} .dn{color:var(--bad)}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 12px;margin:6px 0 4px}
+.kv div{font-size:12px;color:var(--ink2)} .kv b{display:block;color:var(--ink);font-size:14px;font-variant-numeric:tabular-nums}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px}
+.opt{border:1px solid var(--grid);border-radius:8px;padding:8px 10px}
+.opt .nm{font-size:12px;color:var(--ink2)} .opt .px{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:0}
+svg text{font-size:11px;fill:var(--ink2)}
+.chk{list-style:none;margin:0;padding:0} .chk li{display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--grid)}
+.chk li:last-child{border-bottom:0}
+.ic{flex:0 0 20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff}
+.ic.y{background:var(--good)} .ic.n{background:var(--bad)} .ic.i{background:#b9b7b0}
+.chk li>span:nth-child(2){flex:1;min-width:0} .chk .v{color:var(--ink2);font-variant-numeric:tabular-nums;white-space:nowrap;padding-left:8px;font-size:12px}
+.score{font-size:13px;font-weight:600;margin:0 0 6px}
+.trade{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 14px}
+.trade div{font-size:12px;color:var(--ink2)} .trade b{display:block;font-size:16px;color:var(--ink);font-variant-numeric:tabular-nums}
+.rail{position:relative;height:34px;margin:14px 4px 4px}
+.rail .line{position:absolute;top:14px;left:0;right:0;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--bad),#e6e5e1 50%,var(--good))}
+.rail .mk{position:absolute;top:6px;width:4px;height:22px;background:var(--ink);border-radius:2px;transform:translateX(-2px)}
+.rail .en{position:absolute;top:10px;width:2px;height:14px;background:var(--ink2)}
+.rail .l,.rail .r{position:absolute;top:24px;font-size:11px;color:var(--ink2)} .rail .r{right:0}
+.empty{color:var(--ink2);padding:18px 0;text-align:center}
+table{width:100%;border-collapse:collapse;font-size:13px} th,td{padding:6px;border-bottom:1px solid var(--grid);text-align:left;font-variant-numeric:tabular-nums}
+th{color:var(--ink2);font-weight:600}
+.log{max-height:330px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.log div{padding:3px 0;border-bottom:1px dashed var(--grid)} .log .t{color:var(--muted);margin-right:6px}
+.lv{display:inline-block;min-width:52px;font-weight:700;margin-right:4px}
+.lv.signal{color:var(--blue)} .lv.order{color:var(--good)} .lv.exit{color:var(--orange)} .lv.error{color:var(--bad)} .lv.check,.lv.info{color:var(--muted)}
+.filters{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.filters button{border:1px solid var(--grid);background:#fff;border-radius:12px;padding:2px 10px;font-size:12px;cursor:pointer}
+.filters button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.cmp{margin:6px 0 10px} .cmp .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--ink2)}
+.cmp .track{height:8px;background:var(--grid);border-radius:4px;position:relative;margin-top:3px}
+.cmp .fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--blue)}
+.cmp .tick{position:absolute;top:-3px;width:2px;height:14px;background:var(--ink)}
+.tip{position:absolute;pointer-events:none;background:#111;color:#fff;font-size:12px;padding:5px 8px;border-radius:6px;white-space:nowrap;display:none;z-index:5}
+.chartbox{position:relative}
+.demo{display:none;align-items:center;gap:8px;background:var(--warnbg);border:1px solid #eccb7a;border-radius:10px;padding:8px 12px;margin-bottom:10px;flex-wrap:wrap}
+.demo button{border:1px solid #c9a24a;background:#fff;border-radius:8px;padding:3px 10px;cursor:pointer}
+.demo input{flex:1;min-width:160px}
+footer{margin-top:12px;color:var(--ink2);font-size:12px}
+</style></head><body><div class="wrap">
+
+<div class="demo" id="demo"><b>Demo replay</b><span class="small">a sample expiry day (made-up data), practice mode — the real screen looks exactly like this</span>
+<button id="play">Pause</button><button data-sp="1">1×</button><button data-sp="4">4×</button><button data-sp="12">12×</button>
+<input type="range" id="seek" min="0" value="0"><span id="seekt" class="small"></span></div>
+
+<header>
+  <h1>SENSEX Expiry Lab</h1>
+  <span class="badge live" id="livebadge"><span class="pulse"></span>Checking market</span>
+  <span class="badge" id="kind">—</span>
+  <span class="badge" id="expiry">—</span>
+  <span class="badge" id="mode">—</span>
+  <div class="timer"><div><span class="small">Next check in</span> <b id="cd">–</b></div><div class="bar"><i id="cdbar"></i></div>
+    <div class="small">checks <b id="nchk">0</b> · <span id="clock">–</span></div></div>
+</header>
+
+<div class="status" id="status">Loading…</div>
+
+<div class="grid g2">
+  <div class="card"><h2>SENSEX spot</h2>
+    <div><span class="big" id="spot">–</span><span class="chg" id="spotchg"></span><span class="small" id="spotopen"></span></div>
+    <div class="kv">
+      <div>Opening range<b id="orr">–</b></div><div>VWAP (avg price)<b id="vwap">–</b></div><div>EMA 9 / 21<b id="ema">–</b></div>
+    </div>
+    <div class="chartbox"><div class="tip" id="tip1"></div><svg id="spotc" viewBox="0 0 600 230" width="100%"></svg></div>
+    <div class="small"><span class="sw" style="background:var(--blue)"></span>Spot (every check) <span class="sw" style="background:#a3a29c;margin-left:10px"></span>VWAP <span class="sw" style="background:#e6e5e1;margin-left:10px"></span>Opening range
+    <span class="sw" style="background:var(--good);margin-left:10px"></span>TP <span class="sw" style="background:var(--bad);margin-left:10px"></span>SL ·  ▲ buy ● exit</div>
+  </div>
+  <div class="card"><h2>Options (ATM <span id="strike">–</span>)</h2>
+    <div class="opts">
+      <div class="opt"><div class="nm"><span class="sw" style="background:var(--blue)"></span>CALL (CE)</div><div class="px" id="ce">–</div><div class="small" id="cechg"></div></div>
+      <div class="opt"><div class="nm"><span class="sw" style="background:var(--orange)"></span>PUT (PE)</div><div class="px" id="pe">–</div><div class="small" id="pechg"></div></div>
+    </div>
+    <div class="chartbox"><div class="tip" id="tip2"></div><svg id="optc" viewBox="0 0 600 205" width="100%"></svg></div>
+    <div class="small" id="optnote"></div>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:12px">
+  <div class="card"><h2>Entry checklist — evaluated on every closed 5-min bar <span id="chktime"></span></h2>
+    <div class="grid g2">
+      <div><p class="score" id="cescore">BUY CE</p><ul class="chk" id="cechk"></ul></div>
+      <div><p class="score" id="pescore">BUY PE</p><ul class="chk" id="pechk"></ul></div>
+    </div>
+    <div class="small" style="margin-top:6px"><span class="ic y" style="display:inline-flex;width:16px;height:16px;font-size:10px">✓</span> met &nbsp;
+    <span class="ic n" style="display:inline-flex;width:16px;height:16px;font-size:10px">✕</span> not met &nbsp;
+    <span class="ic i" style="display:inline-flex;width:16px;height:16px;font-size:10px">i</span> info only (the model only blocks trades after it passes its weekly test). A trade opens when every check on one side is green.</div>
+  </div>
+  <div class="card"><h2>Active trade</h2><div id="trade"></div></div>
+</div>
+
+<div class="grid g3" style="margin-top:12px">
+  <div class="card"><h2>Today vs last 4 weeks (learning)</h2><div id="today"></div></div>
+  <div class="card"><h2>Trades today</h2><div id="trades"></div></div>
+  <div class="card"><h2>Alert log</h2>
+    <div class="filters" id="filters"><button class="on" data-f="all">All</button><button data-f="signal">Signals</button><button data-f="order">Orders</button><button data-f="exit">Exits</button><button data-f="check">Checks</button></div>
+    <div class="log" id="log"></div></div>
+</div>
+<footer id="foot"></footer>
+</div>
+
+<script>
+const DEMO = window.__DEMO__ || null;
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 0) => v == null ? "–" : Number(v).toLocaleString("en-IN", {minimumFractionDigits: d, maximumFractionDigits: d});
+const sgn = (v, d = 0) => v == null ? "" : (v >= 0 ? "+" : "−") + fmt(Math.abs(v), d);
+const hms = s => { s = Math.max(0, Math.floor(s)); return [Math.floor(s/3600), Math.floor(s%3600/60), s%60].map(x => String(x).padStart(2,"0")).join(":"); };
+let S = null, logFilter = "all", recvAt = Date.now(), runBase = 0;
+
+const mins = t => { const [h, m, s] = t.split(":").map(Number); return (h - 9) * 60 + m - 15 + (s || 0) / 60; };
+const hhmm = x => { const m = Math.round(x) + 9 * 60 + 15; return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); };
+// series: [{name, x:[minutes since 09:15], v:[], c, w, dash}] — x axis is the whole session 09:15–15:30
+function lineChart(svg, tip, series, opt = {}) {
+  const W = 600, H = +svg.getAttribute("viewBox").split(" ")[3], L = 58, R = 10, T = 10, B = 22, X0 = 0, X1 = 375;
+  const all = series.flatMap(s => s.v).concat((opt.hlines || []).map(h => h.y)).concat(opt.band || []).filter(v => v != null);
+  if (!series.some(s => s.v.length)) { svg.innerHTML = `<text x="300" y="${H/2}" text-anchor="middle">waiting for data…</text>`; return; }
+  let lo = Math.min(...all), hi = Math.max(...all); const pad = (hi - lo) * 0.08 || 10; lo -= pad; hi += pad;
+  const X = m => L + (m - X0) / (X1 - X0) * (W - L - R), Y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  let h = "";
+  for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; h += `<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e6e5e1"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end">${fmt(v, opt.dec||0)}</text>`; }
+  for (let m = 45; m <= 375; m += 60) h += `<text x="${X(m)}" y="${H-6}" text-anchor="middle">${hhmm(m)}</text>`;
+  if (opt.band) h += `<rect x="${L}" width="${W-L-R}" y="${Y(opt.band[1])}" height="${Math.max(2, Y(opt.band[0]) - Y(opt.band[1]))}" fill="#e6e5e1" opacity=".75"/>`;
+  (opt.hlines || []).forEach(l => { h += `<line x1="${L}" x2="${W-R}" y1="${Y(l.y)}" y2="${Y(l.y)}" stroke="${l.c}" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W-R-4}" y="${Y(l.y)-4}" text-anchor="end" style="fill:${l.c};font-weight:600">${l.label} ${fmt(l.y)}</text>`; });
+  series.forEach(s => { const p = s.v.map((v, i) => v == null ? null : `${X(s.x[i]).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean).join(" ");
+    h += `<polyline points="${p}" fill="none" stroke="${s.c}" stroke-width="${s.w||2}" stroke-linejoin="round" ${s.dash?'stroke-dasharray="4 3"':''}/>`; });
+  (opt.marks || []).forEach(m => { if (m.x == null) return; const x = X(m.x), y = Y(m.y);
+    h += m.kind == "buy" ? `<path d="M${x},${y-9} l7,12 h-14z" fill="${m.c}" stroke="#fff" stroke-width="1.5"/>` : `<circle cx="${x}" cy="${y}" r="6" fill="#0b0b0b" stroke="#fff" stroke-width="2"/>`; });
+  h += `<line id="${svg.id}x" y1="${T}" y2="${H-B}" stroke="#0b0b0b" stroke-width="1" opacity="0"/><rect x="${L}" y="0" width="${W-L-R}" height="${H}" fill="transparent"/>`;
+  svg.innerHTML = h;
+  const near = (s, m) => { let b = -1, d = 1e9; s.x.forEach((x, i) => { const dd = Math.abs(x - m); if (dd < d && s.v[i] != null) { d = dd; b = i; } }); return d <= 6 ? b : -1; };
+  svg.onmousemove = ev => { const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) / r.width * W;
+    const m = Math.max(0, Math.min(375, (px - L) / (W - L - R) * 375));
+    const lines = series.map(s => { const i = near(s, m); return i < 0 ? null : `${s.name}: ${fmt(s.v[i], opt.dec||0)}`; }).filter(Boolean);
+    if (!lines.length) { tip.style.display = "none"; return; }
+    const ln = $(svg.id + "x"); ln.setAttribute("x1", X(m)); ln.setAttribute("x2", X(m)); ln.setAttribute("opacity", .35);
+    tip.innerHTML = `<b>${hhmm(m)}</b><br>` + lines.join("<br>");
+    tip.style.display = "block"; tip.style.left = Math.min(r.width - 150, (X(m) / W) * r.width + 10) + "px"; tip.style.top = "8px"; };
+  svg.onmouseleave = () => { tip.style.display = "none"; const ln = $(svg.id + "x"); if (ln) ln.setAttribute("opacity", 0); };
+}
+
+function checklist(el, items) {
+  el.innerHTML = (items || []).map(c => `<li><span class="ic ${c.ok === true ? "y" : c.ok === false ? "n" : "i"}">${c.ok === true ? "✓" : c.ok === false ? "✕" : "i"}</span><span>${c.name}</span><span class="v">${c.value}</span></li>`).join("");
+  const need = (items || []).filter(c => c.ok !== null), got = need.filter(c => c.ok).length;
+  return [got, need.length];
+}
+
+function render() {
+  if (!S) return;
+  const st = S, pos = st.position, today = st.today || {};
+  $("kind").textContent = st.kind == "D0" ? "Expiry day (D0)" : st.kind == "D1" ? "Day before expiry (D1)" : st.kind;
+  $("expiry").textContent = "Expiry " + st.expiry;
+  $("mode").textContent = st.mode == "LIVE" ? "LIVE ORDERS" : "PRACTICE (no real orders)";
+  $("mode").className = "badge " + (st.mode == "LIVE" ? "real" : "practice");
+  const done = st.status == "DONE";
+  $("livebadge").innerHTML = done ? "Finished for today" : st.status == "PRE_OPEN" ? '<span class="pulse"></span>Waiting for market open' : '<span class="pulse"></span>Checking market';
+  $("nchk").textContent = st.checks_count; $("clock").textContent = new Date(st.now).toLocaleTimeString("en-IN", {hour12: false, timeZone: "Asia/Kolkata"}) + " IST · " + st.data_source;
+
+  // status line
+  const ce = checklist($("cechk"), st.checks.CE), pe = checklist($("pechk"), st.checks.PE);
+  $("cescore").innerHTML = `BUY CE <span class="small">${ce[0]}/${ce[1]} met</span>`; $("pescore").innerHTML = `BUY PE <span class="small">${pe[0]}/${pe[1]} met</span>`;
+  $("chktime").textContent = st.checks.time ? `(last bar ${st.checks.time})` : "";
+  const sEl = $("status");
+  if (pos) { sEl.className = "status in"; sEl.innerHTML = `In trade: ${pos.action.replace("_", " ")} ${pos.symbol} — ${sgn(pos.points)} pts, ₹${sgn(pos.rupees)}<span class="small">TP ${fmt(pos.tp_spot)} (${fmt(pos.to_tp)} pts away) · SL ${fmt(pos.sl_spot)} (${fmt(pos.to_sl)} pts away)</span>`; }
+  else if (done) { sEl.className = "status done"; sEl.innerHTML = `Done for today — ${st.trades.length} trade(s)<span class="small">Still recording data for tonight's learning update</span>`; }
+  else if (st.status == "PRE_OPEN") { sEl.className = "status"; sEl.innerHTML = `Waiting for the market to open<span class="small">Entries allowed ${st.rules.entry_window}</span>`; }
+  else { const best = ce[0] >= pe[0] ? ["CE", ce] : ["PE", pe]; sEl.className = "status";
+    sEl.innerHTML = `Watching for a setup — closest: BUY ${best[0]} (${best[1][0]} of ${best[1][1]} conditions met)<span class="small">Trades today ${st.trades.length}/${st.rules.max_trades} · entries ${st.rules.entry_window} · exit by ${st.rules.exit_time}</span>`; }
+
+  // spot
+  $("spot").textContent = fmt(st.spot, 2);
+  const chg = st.prev_close ? st.spot - st.prev_close : null;
+  $("spotchg").innerHTML = chg == null ? "" : `<span class="${chg >= 0 ? "up" : "dn"}">${sgn(chg, 1)} (${sgn(chg / st.prev_close * 100, 2)}%)</span>`;
+  $("spotopen").textContent = today.open ? `  ${sgn(st.spot - today.open)} from open` : "";
+  $("orr").textContent = today.or_low ? `${fmt(today.or_low)} – ${fmt(today.or_high)}` : "–";
+  $("vwap").innerHTML = today.vwap ? `${fmt(today.vwap)} <span class="${st.spot >= today.vwap ? "up" : "dn"}">${st.spot >= today.vwap ? "above" : "below"}</span>` : "–";
+  $("ema").innerHTML = today.ema9 ? `${fmt(today.ema9)} / ${fmt(today.ema21)} <span class="${today.ema9 >= today.ema21 ? "up" : "dn"}">${today.ema9 >= today.ema21 ? "up" : "down"}</span>` : "–";
+  const oh = st.opt_hist || [];
+  const marks = [];
+  st.trades.forEach(t => { marks.push({kind: "buy", x: mins(t.entry), y: t.entry_spot, c: t.side == "CE" ? "#2a78d6" : "#eb6834"}); marks.push({kind: "exit", x: mins(t.exit), y: t.exit_spot}); });
+  const istTime = iso => new Date(iso).toLocaleTimeString("en-IN", {hour12: false, timeZone: "Asia/Kolkata"});
+  if (pos) marks.push({kind: "buy", x: mins(istTime(pos.entry_time)), y: pos.entry_spot, c: pos.side == "CE" ? "#2a78d6" : "#eb6834"});
+  lineChart($("spotc"), $("tip1"), [
+      {name: "Spot", x: oh.map(r => mins(r.t)), v: oh.map(r => r.spot), c: "#2a78d6"},
+      {name: "VWAP", x: st.bars.map(b => mins(b.t) + 5), v: st.bars.map(b => b.vwap), c: "#a3a29c", w: 1.3, dash: 1}],
+    {band: today.or_low ? [today.or_low, today.or_high] : null, marks, hlines: pos ? [{y: pos.tp_spot, c: "#0f8a5f", label: "TP"}, {y: pos.sl_spot, c: "#c93a3a", label: "SL"}] : []});
+
+  // options
+  const o = st.options || {};
+  $("strike").textContent = o.strike ? fmt(o.strike) : "–";
+  $("ce").textContent = o.ce == null ? "–" : "₹" + fmt(o.ce, 1); $("pe").textContent = o.pe == null ? "–" : "₹" + fmt(o.pe, 1);
+  const prev = oh.length > 1 && oh[oh.length - 2].strike == o.strike ? oh[oh.length - 2] : null;
+  const back = oh.slice(0, -1).reverse().find(r => r.strike == o.strike && mins(oh[oh.length - 1].t) - mins(r.t) >= 15);
+  const dl = (now, a, b) => (a ? `<span class="${now >= a ? "up" : "dn"}">${sgn(now - a, 1)}</span> since last check` : "strike just changed")
+                          + (b ? ` · <span class="${now >= b ? "up" : "dn"}">${sgn(now - b, 1)}</span> in 15 min` : "");
+  $("cechg").innerHTML = o.ce == null ? "" : dl(o.ce, prev && prev.ce, back && back.ce);
+  $("pechg").innerHTML = o.pe == null ? "" : dl(o.pe, prev && prev.pe, back && back.pe);
+  const ox = oh.map(r => mins(r.t)), fk = o.fixed_strike ? fmt(o.fixed_strike) : "";
+  const oser = [{name: `${fk} CE`, x: ox, v: oh.map(r => r.fce), c: "#2a78d6"}, {name: `${fk} PE`, x: ox, v: oh.map(r => r.fpe), c: "#eb6834"}];
+  if (oh.some(r => r.held != null)) oser.push({name: "Held option", x: ox, v: oh.map(r => r.held), c: "#0f8a5f", w: 3});
+  lineChart($("optc"), $("tip2"), oser, {dec: 0});
+  $("optnote").innerHTML = `Chart: <span class="sw" style="background:var(--blue)"></span>${fk} CE <span class="sw" style="background:var(--orange);margin-left:8px"></span>${fk} PE (ATM at the start of the day) <span class="sw" style="background:var(--good);margin-left:8px"></span>option you hold. `
+    + (o.estimated ? "Prices estimated from spot + VIX (no live option quote)." : "Live quotes from OpenAlgo.");
+
+  // active trade
+  if (pos) {
+    const run = DEMO ? pos.running_sec : pos.running_sec + (Date.now() - recvAt) / 1000;
+    const span = pos.to_tp + pos.to_sl, at = span > 0 ? Math.max(0, Math.min(1, pos.to_sl / span)) : .5, en = span > 0 ? (pos.to_sl - pos.points) / span : .5;
+    const et = new Date(pos.entry_time).toLocaleTimeString("en-IN", {hour12: false, timeZone: "Asia/Kolkata"});
+    $("trade").innerHTML = `<div style="font-size:17px;font-weight:700;margin-bottom:8px">${pos.action.replace("_", " ")} · ${pos.symbol} · qty ${pos.qty}</div>
+      <div class="trade">
+        <div>Activated at<b>${et}</b></div><div>Running for<b id="runtime">${hms(run)}</b></div>
+        <div>P&amp;L (points)<b class="${pos.points >= 0 ? "up" : "dn"}">${sgn(pos.points, 1)}</b></div><div>P&amp;L (₹)<b class="${pos.rupees >= 0 ? "up" : "dn"}">₹${sgn(pos.rupees)}</b></div>
+        <div>Entry spot<b>${fmt(pos.entry_spot)}</b></div><div>Spot now<b>${fmt(st.spot)}</b></div>
+        <div>Entry premium<b>₹${fmt(pos.entry_prem, 1)}</b></div><div>Premium now<b>₹${fmt(pos.prem_now, 1)}</b></div>
+        <div>Take profit (TP)<b class="up">${fmt(pos.tp_spot)}</b></div><div>to TP<b>${fmt(pos.to_tp)} pts</b></div>
+        <div>Stop loss (SL)<b class="dn">${fmt(pos.sl_spot)}</b></div><div>to SL<b>${fmt(pos.to_sl)} pts</b></div>
+      </div>
+      <div class="rail"><div class="line"></div><div class="en" style="left:${en*100}%"></div><div class="mk" style="left:${at*100}%"></div><span class="l">SL ${fmt(pos.sl_spot)}</span><span class="r">TP ${fmt(pos.tp_spot)}</span></div>
+      <div class="small">Why: ${pos.reason}</div><div class="small">Also exits on trend shift (EMA9/21 cross against) or at ${st.rules.exit_time}.</div>`;
+  } else {
+    $("trade").innerHTML = `<div class="empty">No open trade.<br>${done ? "Day finished." : "It will open one when every check on one side turns green."}<br><span class="small">Plan: ${st.rules.lots} lot × ${st.rules.lot_size} · target ${fmt(st.rules.target_pts)} pts · stop ${fmt(st.rules.stop_pts)} pts</span></div>`;
+  }
+
+  // today vs past
+  const bar = (label, v, typ, unit, max) => { const m = max || Math.max(v || 0, typ || 0) * 1.25 || 1;
+    return `<div class="cmp"><div class="lab"><span>${label}</span><span><b style="color:var(--ink)">${v == null ? "–" : fmt(v, unit == "%" ? 0 : 0)}${unit}</b> today · typical ${typ == null ? "–" : fmt(typ, 0)}${unit}</span></div>
+      <div class="track"><div class="fill" style="width:${Math.min(100, (v || 0) / m * 100)}%"></div>${typ == null ? "" : `<div class="tick" style="left:${Math.min(100, typ / m * 100)}%"></div>`}</div></div>`; };
+  const L = st.learning || {};
+  $("today").innerHTML = bar("Range so far", today.range, today.typical_range, " pts")
+    + bar("Trend changes so far", today.trend_shifts, today.typical_shifts, "")
+    + bar("ATM premium left (CE+PE)", today.straddle_left == null ? null : today.straddle_left * 100, today.typical_straddle_left == null ? null : today.typical_straddle_left * 100, "%", 100)
+    + `<div class="small">Black tick = typical for ${st.kind} over the last 4 weeks (${L.days_learnt || 0} days). Best entry times learnt: <b>${(L.best_slots || []).slice().sort().join(", ") || "–"}</b>.<br>Today's bars and option prices are saved, and tonight's <code>update</code> re-learns from the new 4-week window.</div>`;
+
+  // trades
+  $("trades").innerHTML = st.trades.length ? `<table><thead><tr><th>Option</th><th>In</th><th>Out</th><th>Pts</th><th>₹</th><th>Why exit</th></tr></thead><tbody>${st.trades.map(t =>
+    `<tr><td>${t.side} ${t.symbol.slice(-7, -2)}</td><td>${t.entry}</td><td>${t.exit}</td><td class="${t.points >= 0 ? "up" : "dn"}">${sgn(t.points)}</td><td class="${t.rupees >= 0 ? "up" : "dn"}">${sgn(t.rupees)}</td><td class="small">${t.reason.split(":")[0]}</td></tr>`).join("")}</tbody></table>
+    <p style="margin:8px 0 0">Total today: <b class="${st.trades.reduce((a, t) => a + t.rupees, 0) >= 0 ? "up" : "dn"}">₹${sgn(st.trades.reduce((a, t) => a + t.rupees, 0))}</b></p>` : `<div class="empty">No trades yet today.</div>`;
+
+  // alerts
+  $("log").innerHTML = st.alerts.filter(a => logFilter == "all" || a.level == logFilter).map(a => `<div><span class="t">${a.time}</span><span class="lv ${a.level}">${a.level.toUpperCase()}</span>${a.msg}</div>`).join("") || '<div class="small">Nothing yet.</div>';
+  $("foot").innerHTML = `Learnt ${L.built_at || "–"} from ${L.window ? L.window.from + " → " + L.window.to : "–"} · model ${L.model && L.model.trusted ? "trusted (gates entries)" : "not trusted yet (rules only)"} · rules: target ${fmt(st.rules.target_pts)} / stop ${fmt(st.rules.stop_pts)} pts, max ${st.rules.max_trades} trades`;
+}
+
+document.querySelectorAll("#filters button").forEach(b => b.onclick = () => { logFilter = b.dataset.f; document.querySelectorAll("#filters button").forEach(x => x.classList.toggle("on", x == b)); render(); });
+
+// countdown + running clock, every 200ms
+let stepMs = 1500;
+setInterval(() => {
+  if (!S) return;
+  let left;
+  if (DEMO) left = S.poll_seconds * Math.max(0, 1 - (Date.now() - recvAt) / stepMs);
+  else left = (new Date(S.next_check) - new Date(S.now)) / 1000 - (Date.now() - recvAt) / 1000;
+  left = Math.max(0, left);
+  $("cd").textContent = S.status == "DONE" ? "—" : Math.ceil(left) + "s";
+  $("cdbar").style.width = (100 - left / S.poll_seconds * 100) + "%";
+  if (!DEMO && S.position && $("runtime")) $("runtime").textContent = hms(S.position.running_sec + (Date.now() - recvAt) / 1000);
+}, 200);
+
+if (DEMO) {
+  $("demo").style.display = "flex";
+  let i = 0, playing = true, speed = 1, timer;
+  const seek = $("seek"); seek.max = DEMO.length - 1;
+  const show = k => { i = k; S = DEMO[i]; recvAt = Date.now(); seek.value = i; $("seekt").textContent = new Date(S.now).toLocaleTimeString("en-IN", {hour12: false, hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata"}); render(); };
+  const loop = () => { clearTimeout(timer); if (!playing) return; stepMs = 1500 / speed; timer = setTimeout(() => { show(i + 1 < DEMO.length ? i + 1 : 0); loop(); }, stepMs); };
+  $("play").onclick = () => { playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; if (playing) { recvAt = Date.now(); loop(); } };
+  document.querySelectorAll("[data-sp]").forEach(b => b.onclick = () => { speed = +b.dataset.sp; loop(); });
+  seek.oninput = () => { show(+seek.value); loop(); };
+  const start = DEMO.findIndex(s => s.trades.length || s.position) ; show(Math.max(0, start - 6)); loop();
+} else {
+  const pull = () => fetch("api/state").then(r => r.ok ? r.json() : null).then(j => { if (j) { S = j; recvAt = Date.now(); render(); } }).catch(() => {});
+  pull(); setInterval(pull, 2000);
+}
+</script></body></html>

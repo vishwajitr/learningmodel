@@ -1,4 +1,0 @@
-# Core service (no models). Engines are installed separately – see README.
-fastapi>=0.115
-uvicorn[standard]>=0.32
-python-dotenv>=1.0

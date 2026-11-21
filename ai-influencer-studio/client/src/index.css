@@ -1,0 +1,77 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: 'Inter', 'Noto Sans Devanagari', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-background: #0b0b10;
+  --color-foreground: #e7e7ee;
+  --color-card: #13131b;
+  --color-card-foreground: #e7e7ee;
+  --color-popover: #16161f;
+  --color-popover-foreground: #e7e7ee;
+  --color-muted: #1c1c27;
+  --color-muted-foreground: #9090a6;
+  --color-border: #262634;
+  --color-input: #2a2a3a;
+  --color-ring: #8b5cf6;
+  --color-primary: #8b5cf6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1f1f2c;
+  --color-secondary-foreground: #e7e7ee;
+  --color-accent: #23233a;
+  --color-accent-foreground: #f2f2f7;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+
+  --radius-lg: 0.875rem;
+  --radius-md: 0.625rem;
+  --radius-sm: 0.4rem;
+
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-primary) 45%, transparent);
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+}
+
+@utility bg-app-gradient {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgb(139 92 246 / 0.12), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgb(59 130 246 / 0.10), transparent 60%),
+    var(--color-background);
+}
+@utility text-gradient {
+  background: linear-gradient(90deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility bg-brand {
+  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+}

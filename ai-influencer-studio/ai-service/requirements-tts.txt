@@ -1,0 +1,10 @@
+# Local text-to-speech engines (free, no API keys).
+# CPU-only PyTorch is fine for MMS-TTS; use a CUDA build for IndicF5 if you have an NVIDIA GPU:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+torch>=2.3
+transformers>=4.44
+numpy
+soundfile
+librosa            # optional: enables voice pitch shifting
+# IndicF5 (AI4Bharat) – Hindi, Marathi, English + 8 more Indian languages, voice cloning
+git+https://github.com/ai4bharat/IndicF5.git
